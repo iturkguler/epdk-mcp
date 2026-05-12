@@ -31,7 +31,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/legalenerji/epdk-mcp",
+        "git+https://github.com/iturkguler/epdk-mcp",
         "epdk-mcp"
       ]
     }
@@ -42,7 +42,7 @@
 ### Yerel geliştirme
 
 ```bash
-git clone https://github.com/legalenerji/epdk-mcp
+git clone https://github.com/iturkguler/epdk-mcp
 cd epdk-mcp
 uv pip install -e .
 epdk-mcp  # stdio modunda başlar

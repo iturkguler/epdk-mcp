@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "fastmcp>=2.0.0",
     "httpx>=0.27.0",
+    "playwright>=1.40.0",
     "beautifulsoup4>=4.12.0",
     "lxml>=5.0.0",
     "pydantic>=2.5.0",
@@ -47,9 +48,9 @@ dev = [
 epdk-mcp = "epdk_mcp.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/legalenerji/epdk-mcp"
-Repository = "https://github.com/legalenerji/epdk-mcp"
-Issues = "https://github.com/legalenerji/epdk-mcp/issues"
+Homepage = "https://github.com/iturkguler/epdk-mcp"
+Repository = "https://github.com/iturkguler/epdk-mcp"
+Issues = "https://github.com/iturkguler/epdk-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/epdk_mcp"]
