@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "epdk-mcp"
+version = "0.1.0"
+description = "MCP Server for EPDK (Enerji Piyasası Düzenleme Kurumu) — Türk elektrik piyasası mevzuatı ve Kurul Kararları erişimi"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Türkgüler | Fırat | Yılmaz", email = "contact@legalenerji.com" }
+]
+requires-python = ">=3.11"
+keywords = ["mcp", "model-context-protocol", "epdk", "turkish", "legal", "energy", "elektrik"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Office/Business :: Financial",
+    "Natural Language :: Turkish",
+]
+dependencies = [
+    "fastmcp>=2.0.0",
+    "httpx>=0.27.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "pydantic>=2.5.0",
+    "pypdf>=4.0.0",
+    "markdownify>=0.13.0",
+]
+
+[project.optional-dependencies]
+ocr = [
+    "mistralai>=1.0.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+epdk-mcp = "epdk_mcp.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/legalenerji/epdk-mcp"
+Repository = "https://github.com/legalenerji/epdk-mcp"
+Issues = "https://github.com/legalenerji/epdk-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/epdk_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
