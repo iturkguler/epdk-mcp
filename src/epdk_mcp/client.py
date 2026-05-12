@@ -53,9 +53,28 @@ class EpdkClient:
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
 
+    @staticmethod
+    def _install_chromium() -> None:
+        """Chromium binary yoksa kurar (ilk çalıştırmada)."""
+        import subprocess, sys
+        logger.info("Playwright Chromium kurulumu başlatılıyor...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                check=True, capture_output=True,
+            )
+            logger.info("Playwright Chromium kuruldu.")
+        except subprocess.CalledProcessError as e:
+            logger.warning("Chromium kurulum hatası: %s", e.stderr.decode()[:200])
+
     async def __aenter__(self) -> EpdkClient:
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=True)
+        try:
+            self._browser = await self._playwright.chromium.launch(headless=True)
+        except Exception:
+            # Binary yok — kur ve tekrar dene
+            await asyncio.get_event_loop().run_in_executor(None, self._install_chromium)
+            self._browser = await self._playwright.chromium.launch(headless=True)
         self._context = await self._browser.new_context(
             user_agent=DEFAULT_HEADERS["User-Agent"],
             locale="tr-TR",

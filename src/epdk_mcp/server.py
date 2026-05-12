@@ -463,35 +463,12 @@ async def tahmini_karar_sayisi(
 # Entry point
 # ============================================================================
 
-def _ensure_playwright_browsers() -> None:
-    """Playwright Chromium binary kurulu değilse otomatik kurar."""
-    import subprocess
-    import sys
-    try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            browser.close()
-    except Exception:
-        logger.info("Playwright Chromium bulunamadı, kuruluyor...")
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                check=True,
-                capture_output=True,
-            )
-            logger.info("Playwright Chromium kuruldu.")
-        except subprocess.CalledProcessError as e:
-            logger.warning("Playwright Chromium kurulum hatası: %s", e)
-
-
 def run() -> None:
     """Stdio modunda MCP server'ı başlat."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    _ensure_playwright_browsers()
     mcp.run()
 
 
