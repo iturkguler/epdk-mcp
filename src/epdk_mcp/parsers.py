@@ -146,6 +146,88 @@ def extract_download_links(html_or_soup: str | BeautifulSoup, base_url: str = BA
 # Liste sayfası parser'ları (kategori sayfasından karar listesi)
 # ============================================================================
 
+def parse_fast_access_models(
+    models: list[dict], base_url: str = BASE_URL, kategori: str | None = None
+) -> list[KurulKarariOzet]:
+    """GetFastAccessList API yanıtındaki model listesini KurulKarariOzet listesine çevirir.
+
+    EPDK /Detay/GetFastAccessList endpoint'i şu yapıyı döndürür:
+        {"Type": 1, "model": [{
+            "Title": "...", "Number": "13134", "Date": "26.12.2024",
+            "RgDate": "29.12.2024", "RgNumber": "32767", "MulgaTitle": "",
+            "IsLink": 1, "IsLinkType": 2, "Url": null,
+            "FastAccessDetail": [{"ContentId": "Gr3H4bEcqes=", "IsFileType": 1, ...}]
+        }, ...]}
+
+    URL şeması:
+        - IsLinkType == 2  → PDF; URL = DownloadDocument?id={ContentId}
+        - IsLinkType == 1  → view sayfası; m["Url"] kullanılır
+    """
+    sonuclar: list[KurulKarariOzet] = []
+    seen_urls: set[str] = set()
+
+    for m in models:
+        title = (m.get("Title") or "").strip()
+        number_str = (m.get("Number") or "").strip()
+        date_str = (m.get("Date") or "").strip()
+        rg_date_str = (m.get("RgDate") or "").strip()
+        rg_number_str = (m.get("RgNumber") or "").strip()
+
+        # Karar sayısını parse et ("13134", "12799-9", "13131/1-2" gibi)
+        sayi: int | None = None
+        if number_str:
+            m_sayi = re.match(r"(\d+)", number_str)
+            if m_sayi:
+                try:
+                    sayi = int(m_sayi.group(1))
+                except ValueError:
+                    pass
+
+        tarih = parse_tr_date(date_str)
+        rg_tarih = parse_tr_date(rg_date_str)
+        rg_sayi = rg_number_str or None
+
+        # URL: önce Url alanı, yoksa DownloadDocument
+        karar_url: str | None = None
+        raw_url = m.get("Url")
+        if raw_url:
+            karar_url = raw_url if raw_url.startswith("http") else f"{base_url}{raw_url}"
+        else:
+            detail_list = m.get("FastAccessDetail") or []
+            if detail_list:
+                content_id = detail_list[0].get("ContentId")
+                if content_id:
+                    karar_url = f"{base_url}/Detay/DownloadDocument?id={content_id}"
+
+        if not karar_url:
+            continue
+        if karar_url in seen_urls:
+            continue
+        seen_urls.add(karar_url)
+
+        # Başlık: karar sayısı + tarih + konu
+        if number_str and title:
+            baslik = f"{number_str} ({date_str}): {title}"
+        elif title:
+            baslik = title
+        else:
+            baslik = f"Kurul Kararı {number_str or '?'} ({date_str})"
+
+        sonuclar.append(
+            KurulKarariOzet(
+                sayi=sayi,
+                tarih=tarih,
+                baslik=baslik[:300],
+                url=karar_url,
+                kategori=kategori,
+                rg_tarih=rg_tarih,
+                rg_sayi=rg_sayi,
+            )
+        )
+
+    return sonuclar
+
+
 def parse_kurul_karari_listesi(
     html: str, base_url: str = BASE_URL, kategori: str | None = None
 ) -> list[KurulKarariOzet]:

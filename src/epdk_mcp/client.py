@@ -163,6 +163,90 @@ class EpdkClient:
             raise last_exc
         raise EpdkHttpError(f"Beklenmedik hata: {url}", url=url)
 
+    async def get_fast_access_data(self, url: str) -> list[dict]:
+        """EPDK liste sayfasındaki tüm data-id elementlerinden karar verilerini çeker.
+
+        Her element için /Detay/GetFastAccessList çağırır ve model listesini döndürür.
+        Playwright browser context'i kullandığı için WAF bypass çalışır.
+        """
+        if self._context is None:
+            raise RuntimeError("EpdkClient context manager içinde kullanılmalıdır.")
+
+        await self._respect_rate_limit()
+
+        page: Page | None = None
+        try:
+            page = await self._context.new_page()
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,otf}",
+                lambda route: route.abort(),
+            )
+            response = await page.goto(url, wait_until="networkidle", timeout=PLAYWRIGHT_TIMEOUT_MS)
+            if response and response.status >= 400:
+                raise EpdkHttpError(f"HTTP {response.status}: {url}", status_code=response.status, url=url)
+            await page.wait_for_timeout(2000)
+
+            # data-id elementlerini al
+            fids: list[str] = await page.evaluate("""() => {
+                const els = document.querySelectorAll('[data-id]');
+                return Array.from(els).map(el => el.getAttribute('data-id')).filter(Boolean);
+            }""")
+
+            if not fids:
+                logger.warning("data-id elementi bulunamadı: %s", url)
+                await page.close()
+                page = None
+                return []
+
+            logger.info("EPDK sayfasında %d data-id bulundu: %s", len(fids), url)
+
+            # GetFastAccessList'i paralel batch'ler halinde çağır
+            all_models: list[dict] = []
+            BATCH_SIZE = 10
+
+            for i in range(0, len(fids), BATCH_SIZE):
+                batch = fids[i : i + BATCH_SIZE]
+                batch_results: list[dict] = await page.evaluate(
+                    """async (fids) => {
+                        const promises = fids.map(fId =>
+                            fetch('/Detay/GetFastAccessList', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json; charset=utf-8',
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                },
+                                body: JSON.stringify({fId})
+                            })
+                            .then(r => r.json())
+                            .then(data => ({fId, ok: true, model: data.model || []}))
+                            .catch(e => ({fId, ok: false, model: []}))
+                        );
+                        return await Promise.all(promises);
+                    }""",
+                    batch,
+                )
+                for item in batch_results:
+                    if item.get("ok"):
+                        all_models.extend(item.get("model", []))
+
+                if i + BATCH_SIZE < len(fids):
+                    await asyncio.sleep(0.3)
+
+            logger.info("GetFastAccessList: toplam %d model kaydı alındı.", len(all_models))
+            await page.close()
+            page = None
+            return all_models
+
+        except (EpdkRateLimitError, EpdkHttpError):
+            raise
+        except Exception as e:
+            if page:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+            raise EpdkHttpError(f"get_fast_access_data hatası: {url} ({e})", url=url) from e
+
     async def get_pdf_bytes(self, url: str) -> bytes:
         """PDF byte içeriği döndürür (httpx ile — Playwright gerekmez)."""
         await self._respect_rate_limit()

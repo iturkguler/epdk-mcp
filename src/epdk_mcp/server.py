@@ -21,6 +21,7 @@ from .models import (
     SayiTahmini,
 )
 from .parsers import (
+    parse_fast_access_models,
     parse_kurul_karari_detay,
     parse_kurul_karari_listesi,
     parse_mevzuat_detay,
@@ -115,29 +116,25 @@ async def search_kurul_karari(
     sonuclar: list[KurulKarariOzet] = []
 
     async with EpdkClient() as client:
-        # Mod 1: Sayı verildi → kategorize sayfayı tara, eşleşmeyi bul
+        # Tüm kararları GetFastAccessList API ile çek (Playwright + browser context)
+        liste_url = ANA_URLLER["kurul_kararlari_eski"]
+
+        # Mod 1: Sayı verildi → tüm listeyi çek, sayıya göre filtrele
         if sayi is not None:
-            html = await client.get_html(ANA_URLLER["kurul_kararlari_kategorize"])
-            tum_kararlar = parse_kurul_karari_listesi(html)
+            models = await client.get_fast_access_data(liste_url)
+            tum_kararlar = parse_fast_access_models(models)
             for k in tum_kararlar:
                 if k.sayi == sayi:
                     sonuclar.append(k)
             if not sonuclar:
-                # Eski URL'i de dene
-                html_eski = await client.get_html(ANA_URLLER["kurul_kararlari_eski"])
-                tum_kararlar_eski = parse_kurul_karari_listesi(html_eski)
-                for k in tum_kararlar_eski:
-                    if k.sayi == sayi:
-                        sonuclar.append(k)
-            if not sonuclar:
                 notlar.append(
-                    f"{sayi} sayılı karar EPDK kategorize listede bulunamadı. "
-                    "Sayı doğru ise karar farklı bir kategori altında olabilir; "
-                    "kategori parametresi ile tekrar deneyin veya doğrudan "
-                    "https://www.epdk.gov.tr arama kutusunu kullanın."
+                    f"{sayi} sayılı karar EPDK listesinde bulunamadı. "
+                    "Karar çok eski olabilir (liste son kararları gösteriyor) "
+                    "veya sayı farklı bir formatta olabilir. "
+                    "Doğrudan https://www.epdk.gov.tr üzerinden arama yapabilirsiniz."
                 )
 
-        # Mod 2: Kategori verildi → kategori sayfasını çek
+        # Mod 2: Kategori verildi → aynı liste URL'inden çek (kategori mevcutsa)
         elif kategori is not None:
             if kategori not in KATEGORILER:
                 notlar.append(
@@ -145,40 +142,51 @@ async def search_kurul_karari(
                     f"Geçerli kategoriler: {', '.join(sorted(KATEGORILER.keys()))}"
                 )
             else:
-                kategori_info = KATEGORILER[kategori]
-                target_url = kategori_info["url"] or ANA_URLLER["kurul_kararlari_kategorize"]
-                html = await client.get_html(target_url)
-                sonuclar = parse_kurul_karari_listesi(
-                    html, kategori=kategori
-                )
-                if query:
-                    # Kategori içinde query ile filtrele
-                    query_lower = query.lower()
-                    sonuclar = [
-                        s for s in sonuclar
-                        if query_lower in s.baslik.lower()
-                    ]
+                models = await client.get_fast_access_data(liste_url)
+                tum_kararlar = parse_fast_access_models(models, kategori=kategori)
+                query_lower = query.lower() if query else None
+                # Kategori anahtar kelimesiyle filtrele
+                arama_anahtari = KATEGORILER[kategori]["arama_anahtari"].lower()
+                sonuclar = [
+                    k for k in tum_kararlar
+                    if any(
+                        kw in k.baslik.lower()
+                        for kw in arama_anahtari.split()
+                        if len(kw) > 3
+                    )
+                ]
+                if query_lower:
+                    sonuclar = [s for s in sonuclar if query_lower in s.baslik.lower()]
+                if not sonuclar:
+                    # Keyword filtresi çok kısıtlayıcı olabilir — query varsa direkt uygula
+                    if query_lower:
+                        sonuclar = [k for k in tum_kararlar if query_lower in k.baslik.lower()]
+                    else:
+                        sonuclar = tum_kararlar
+                    notlar.append(
+                        f"'{kategori}' kategorisi için anahtar kelime eşleşmesi bulunamadı; "
+                        "tüm liste döndürülüyor."
+                    )
 
-        # Mod 3: Sadece query verildi → kategorize sayfada tara
+        # Mod 3: Sadece query verildi → liste genelinde arama
         elif query is not None:
-            html = await client.get_html(ANA_URLLER["kurul_kararlari_kategorize"])
-            tum_kararlar = parse_kurul_karari_listesi(html)
+            models = await client.get_fast_access_data(liste_url)
+            tum_kararlar = parse_fast_access_models(models)
             query_lower = query.lower()
             sonuclar = [k for k in tum_kararlar if query_lower in k.baslik.lower()]
             if not sonuclar:
                 notlar.append(
-                    "Kategorize sayfada eşleşme bulunamadı. "
-                    "Tüm Kurul Kararları kategorize edilmemiş olabilir; "
-                    "kategori parametresi ile spesifik bir konuya odaklanın."
+                    "Anahtar kelime eşleşmesi bulunamadı. "
+                    "Karar başlıklarında Türkçe karakter ve kısaltmaya dikkat edin. "
+                    "Farklı terimle tekrar deneyin veya kategori parametresi kullanın."
                 )
 
-        # Hiç parametre yok → kategorize sayfayı tara
+        # Hiç parametre yok → son kararları döndür
         else:
-            html = await client.get_html(ANA_URLLER["kurul_kararlari_kategorize"])
-            sonuclar = parse_kurul_karari_listesi(html)
+            models = await client.get_fast_access_data(liste_url)
+            sonuclar = parse_fast_access_models(models)
             notlar.append(
-                "Filtre verilmedi; kategorize liste sayfasının tüm "
-                "Kurul Kararı linkleri döndürülüyor."
+                "Filtre verilmedi; EPDK kurul kararları listesi döndürülüyor."
             )
 
     sonuclar = sonuclar[:max_results]
@@ -230,6 +238,32 @@ async def get_kurul_karari(
         raise ValueError(f"karar_url tam URL olmalı: {karar_url}")
 
     async with EpdkClient() as client:
+        # DownloadDocument URL'leri direkt PDF'dir
+        if "DownloadDocument" in karar_url:
+            pdf_bytes = await client.get_pdf_bytes(karar_url)
+            metin = parse_pdf_metni(pdf_bytes, max_chars=max_pdf_chars)
+            # PDF metninden meta bilgi çıkar
+            from .parsers import extract_sayi_tarih, extract_rg, extract_dayanak
+            sayi, tarih = extract_sayi_tarih(metin)
+            rg_tarih, rg_sayi = extract_rg(metin)
+            dayanak = extract_dayanak(metin)
+            # Başlık: ilk anlamlı satır
+            baslik_satir = next(
+                (ln.strip() for ln in metin.split("\n") if len(ln.strip()) > 20), "Kurul Kararı"
+            )
+            return KurulKarariDetay(
+                sayi=sayi,
+                tarih=tarih,
+                baslik=baslik_satir[:200],
+                url=karar_url,
+                rg_tarih=rg_tarih,
+                rg_sayi=rg_sayi,
+                dayanak_kanun_madde=dayanak,
+                icerik_markdown=metin,
+                pdf_ekler=[PdfEk(baslik="Karar PDF", url=karar_url, metin_markdown=metin)],
+            )
+
+        # HTML sayfa (eski tip URL)
         html = await client.get_html(karar_url)
         detay_dict = parse_kurul_karari_detay(html, karar_url)
 
@@ -410,17 +444,20 @@ async def list_son_kararlar(
     filtreleme yapılmaz. Sadece elektrik için search_kurul_karari kullanın.
     """
     async with EpdkClient() as client:
-        html = await client.get_html(ANA_URLLER["ana_sayfa"])
-        sonuclar = parse_kurul_karari_listesi(html)
+        models = await client.get_fast_access_data(ANA_URLLER["kurul_kararlari_eski"])
+        tum_sonuclar = parse_fast_access_models(models)
 
-    sonuclar = sonuclar[:adet]
+    # Tarihe göre sırala (en yeni önce)
+    tum_sonuclar.sort(key=lambda k: k.tarih or __import__("datetime").date.min, reverse=True)
+    sonuclar = tum_sonuclar[:adet]
+
     return AramaSonucu(
         sorgu="son_kararlar",
         toplam_sonuc=len(sonuclar),
         sonuclar=sonuclar,
         notlar=[
-            "Ana sayfa duyuruları tüm sektörleri kapsar; "
-            "yalnızca elektrik için search_kurul_karari kullanın."
+            "EPDK kurul kararları listesinden alınmıştır; "
+            "elektrik piyasası kategorilerini kapsar."
         ],
     )
 
